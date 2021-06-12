@@ -3,7 +3,9 @@ import json
 import logging
 import os
 import re
+import socket
 import tempfile
+import time
 import unicodedata
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -31,7 +33,21 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
             while True:
                 logger.debug("_copy_btw_filesystems reading data")
                 try:
+                    start = time.time()
                     data = source.read(BLOCK_SIZE)
+                    logger.debug(
+                        "_copy_btw_filesystems read data in %s seconds.",
+                        round((time.time() - start), 5)
+                    )
+                except socket.timeout as e:
+                    logger.debug(
+                        "_copy_btw_filesystems timed out in %s seconds.",
+                        round((time.time() - start), 5)
+                    )
+                    raise ValueError(
+                        "Connection timed out. "
+                        'Try re-instantiating recipe with `fsspec_open_kwargs={"timeout": 300}`'
+                    ) from e
                 except BlockSizeError as e:
                     raise ValueError(
                         "Server does not permit random access to this file via Range requests. "
