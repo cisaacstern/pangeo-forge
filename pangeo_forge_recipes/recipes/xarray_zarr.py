@@ -345,6 +345,9 @@ class XarrayZarrRecipe(BaseRecipe):
         logger.info(f"Opening input with Xarray {input_key}: '{fname}'")
         cache = self.input_cache if self.cache_inputs else None
         with file_opener(fname, cache=cache, copy_to_local=self.copy_input_to_local_file) as f:
+            print(f"""
+            (0.3.4) In `xarray_zarr.open_input` line 349, the value of `f.closed` is {f.closed}
+            """)
             ds = xr.open_dataset(f, **self.xarray_open_kwargs)
             ds = fix_scalar_attr_encoding(ds)
 
