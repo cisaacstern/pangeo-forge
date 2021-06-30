@@ -204,7 +204,7 @@ def open_input(
             if "engine" not in kw:
                 kw["engine"] = "h5netcdf"
             print(f"""
-            In `open_input` line 207, the value of `f.closed` is {f.closed}
+            (0.4.0) In `xarray_zarr.open_input` line 207, the value of `f.closed` is {f.closed}
             """)
             ds = xr.open_dataset(f, **kw)
             logger.debug("successfully opened dataset")
