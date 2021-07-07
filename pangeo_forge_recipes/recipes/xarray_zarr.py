@@ -256,12 +256,17 @@ def open_chunk(
         ]
         # explicitly chunking prevents eager evaluation during concat
         dsets = [ds.chunk() for ds in dsets]
+        print(f"""
+        In line 260 of `xarray_zarr`, len(dsets) = {len(dsets)}
+        and their chunks are {[ds.chunks for ds in dsets]}
+        """)
         logger.info(f"Combining inputs for chunk '{chunk_key}'")
         if len(dsets) > 1:
             # During concat, attributes and encoding are taken from the first dataset
             # https://github.com/pydata/xarray/issues/1614
             with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
                 ds = xr.concat(dsets, concat_dim, **xarray_concat_kwargs)
+            print()
         elif len(dsets) == 1:
             ds = dsets[0]
         else:  # pragma: no cover
@@ -273,11 +278,19 @@ def open_chunk(
 
         with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
             logger.debug(f"{ds}")
-
+        print("""
+        Just printed the dataset, now entering chunking step.
+        """)
         if target_chunks:
             # The input may be too large to process in memory at once, so
             # rechunk it to the target chunks.
+            print(f"""
+            Inside `if target chunks:` block, target_chunks=={target_chunks}
+            """)
             ds = ds.chunk(target_chunks)
+            print(f"""Passed through chunking step without kernel death.
+            ds.chunks == {ds.chunks}
+            """)
         yield ds
 
 
