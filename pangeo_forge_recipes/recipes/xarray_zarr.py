@@ -479,7 +479,7 @@ def store_chunk(
         process_input=process_input,
     ) as ds_chunk:
         print(f"""In `store_chunk`, entered `open_chunk` context,
-        and the size of the chunk is {ds_chunk.nbytes/1e6} MBs
+        and the size of the ds_[to]_chunk is {ds_chunk.nbytes/1e6} MBs
         """)
         # writing a region means that all the variables MUST have concat_dim
         to_drop = [v for v in ds_chunk.variables if concat_dim not in ds_chunk[v].dims]
@@ -501,6 +501,7 @@ def store_chunk(
         zgroup = zarr.open_group(target_mapper)
         print("In `store_chunk`, assigned `zgroup`.")
         for vname, var_coded in ds_chunk.variables.items():
+            print(f"We made it up to {vname}!")
             zarr_array = zgroup[vname]
             # get encoding for variable from zarr attributes
             # could this backfire some way?
