@@ -478,7 +478,9 @@ def store_chunk(
         delete_input_encoding=delete_input_encoding,
         process_input=process_input,
     ) as ds_chunk:
-        print("In `store_chunk`, entered `open_chunk` context.")
+        print(f"""In `store_chunk`, entered `open_chunk` context,
+        and the size of the chunk is {ds_chunk.nbytes/1e6} MBs
+        """)
         # writing a region means that all the variables MUST have concat_dim
         to_drop = [v for v in ds_chunk.variables if concat_dim not in ds_chunk[v].dims]
         ds_chunk = ds_chunk.drop_vars(to_drop)
