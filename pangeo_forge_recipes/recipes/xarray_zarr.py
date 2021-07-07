@@ -503,20 +503,26 @@ def store_chunk(
         for vname, var_coded in ds_chunk.variables.items():
             print(f"We made it up to {vname}!")
             zarr_array = zgroup[vname]
+            print(f"{vname}: `zarr_array` assigned")
             # get encoding for variable from zarr attributes
             # could this backfire some way?
             var_coded.encoding.update(zarr_array.attrs)
+            print(f"{vname}: `var_coded.encoding` updated")
             # just delete all attributes from the var;
             # they are not used anyway, and there can be conflicts
             # related to xarray.coding.variables.safe_setitem
             var_coded.attrs = {}
             with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
                 var = xr.backends.zarr.encode_zarr_variable(var_coded)
+                print(f"{vname}: `var_coded` encoded by `xr.backends.zarr`")
                 data = np.asarray(
                     var.data
                 )  # TODO: can we buffer large data rather than loading it all?
+                print(f"{vname}: `var.data` coerced to `np.array`")
             zarr_region = tuple(write_region.get(dim, slice(None)) for dim in var.dims)
+            print(f"{vname}: `zarr_region` assigned from `write_region`")
             lock_keys = [f"{vname}-{c}" for c in conflicts]
+            print(f"{vname}: `lock_keys` assigned from `conflicts`")
             logger.debug(f"Acquiring locks {lock_keys}")
             with lock_for_conflicts(lock_keys, timeout=lock_timeout):
                 logger.info(
