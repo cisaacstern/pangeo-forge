@@ -478,11 +478,13 @@ def store_chunk(
         delete_input_encoding=delete_input_encoding,
         process_input=process_input,
     ) as ds_chunk:
+        print("In `store_chunk`, entered `open_chunk` context.")
         # writing a region means that all the variables MUST have concat_dim
         to_drop = [v for v in ds_chunk.variables if concat_dim not in ds_chunk[v].dims]
         ds_chunk = ds_chunk.drop_vars(to_drop)
 
         target_mapper = target.get_mapper()
+        print("In `store_chunk`, assigned `target_mapper`")
         write_region, conflicts = region_and_conflicts_for_chunk(
             chunks_inputs=chunks_inputs,
             chunk_key=chunk_key,
@@ -493,8 +495,9 @@ def store_chunk(
             concat_dim=concat_dim,
             metadata_cache=metadata_cache,
         )
-
+        print("In `store_chunk`, assigned `write_region` & `conflicts`.")
         zgroup = zarr.open_group(target_mapper)
+        print("In `store_chunk`, assigned `zgroup`.")
         for vname, var_coded in ds_chunk.variables.items():
             zarr_array = zgroup[vname]
             # get encoding for variable from zarr attributes
