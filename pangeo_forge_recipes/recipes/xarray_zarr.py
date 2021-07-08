@@ -515,6 +515,8 @@ def store_chunk(
             with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
                 var = xr.backends.zarr.encode_zarr_variable(var_coded)
                 print(f"{vname}: `var_coded` encoded by `xr.backends.zarr`")
+                print(f"{vname}: `var_coded` size is {var_coded.nbytes/1e9} GBs")
+
                 data = np.asarray(
                     var.data
                 )  # TODO: can we buffer large data rather than loading it all?
