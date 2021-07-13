@@ -126,11 +126,7 @@ class FlatFSSpecTarget(FSSpecTarget):
     """
 
     def _full_path(self, path: str) -> str:
-        # this is just in case _slugify(path) is non-unique
-        prefix = hashlib.md5(path.encode()).hexdigest()
-        slug = _slugify(path)
-        new_path = "-".join([prefix, slug])
-        return os.path.join(self.root_path, new_path)
+        return _slugify_path(path=path)
 
 
 class CacheFSSpecTarget(FlatFSSpecTarget):
@@ -151,6 +147,14 @@ class CacheFSSpecTarget(FlatFSSpecTarget):
         target_opener = self.open(fname, mode="wb")
         logger.info(f"Coping remote file '{fname}' to cache")
         _copy_btw_filesystems(input_opener, target_opener)
+
+
+class ScrubParamCacheTarget(CacheFSSpecTarget):
+    """Alias for CacheFSSpecTarget which removes API paramaters from input paths."""
+
+    def _full_path(self, path: str) -> str:
+        path = path.split("?")[0]
+        return _slugify_path(path=path)
 
 
 class MetadataTarget(FSSpecTarget):
@@ -218,3 +222,12 @@ def _slugify(value: str) -> str:
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     value = re.sub(r"[^.\w\s-]+", "_", value.lower())
     return re.sub(r"[-\s]+", "-", value).strip("-_")
+
+
+def _slugify_path(self, path: str) -> str:
+    path = path.split("?")[0]
+    # this is just in case _slugify(path) is non-unique
+    prefix = hashlib.md5(path.encode()).hexdigest()
+    slug = _slugify(path)
+    new_path = "-".join([prefix, slug])
+    return os.path.join(self.root_path, new_path)
