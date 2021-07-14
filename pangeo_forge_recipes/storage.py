@@ -126,7 +126,7 @@ class FlatFSSpecTarget(FSSpecTarget):
     """
 
     def _full_path(self, path: str) -> str:
-        return _slugify_path(path=path)
+        return _slugify_path(path, self.root_path)
 
 
 class CacheFSSpecTarget(FlatFSSpecTarget):
@@ -154,7 +154,7 @@ class ScrubParamCacheTarget(CacheFSSpecTarget):
 
     def _full_path(self, path: str) -> str:
         path = path.split("?")[0]
-        return _slugify_path(path=path)
+        return _slugify_path(path, self.root_path)
 
 
 class MetadataTarget(FSSpecTarget):
@@ -224,10 +224,10 @@ def _slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
-def _slugify_path(path: str) -> str:
+def _slugify_path(path: str, root_path: str) -> str:
     path = path.split("?")[0]
     # this is just in case _slugify(path) is non-unique
     prefix = hashlib.md5(path.encode()).hexdigest()
     slug = _slugify(path)
     new_path = "-".join([prefix, slug])
-    return os.path.join(self.root_path, new_path)
+    return os.path.join(root_path, new_path)
