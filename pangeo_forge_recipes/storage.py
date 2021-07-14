@@ -224,7 +224,7 @@ def _slugify(value: str) -> str:
     return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
-def _slugify_path(self, path: str) -> str:
+def _slugify_path(path: str) -> str:
     path = path.split("?")[0]
     # this is just in case _slugify(path) is non-unique
     prefix = hashlib.md5(path.encode()).hexdigest()
