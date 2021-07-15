@@ -141,7 +141,7 @@ class CacheFSSpecTarget(FlatFSSpecTarget):
 class DropAPIParamsCache(CacheFSSpecTarget):
     """Alias for CacheFSSpecTarget which removes API paramaters from input paths."""
 
-    def _drop_api_params(path_or_fname: str) -> str:
+    def _drop_api_params(self, path_or_fname: str) -> str:
         return path_or_fname.split("?")[0]
 
     def _full_path(self, path: str) -> str:
