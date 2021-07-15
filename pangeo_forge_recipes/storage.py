@@ -8,7 +8,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional, Sequence, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
 import fsspec
 from fsspec.implementations.http import BlockSizeError
@@ -132,29 +132,27 @@ class FlatFSSpecTarget(FSSpecTarget):
 class CacheFSSpecTarget(FlatFSSpecTarget):
     """Alias for FlatFSSpecTarget"""
 
-    def cache_file(self, fname: str, **open_kwargs) -> None:
-        # check and see if the file already exists in the cache
-        logger.info(f"Caching file '{fname}'")
-        if self.exists(fname):
-            cached_size = self.size(fname)
-            remote_size = _get_url_size(fname, **open_kwargs)
-            if cached_size == remote_size:
-                # TODO: add checksumming here
-                logger.info(f"File '{fname}' is already cached")
-                return
-
-        input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
-        target_opener = self.open(fname, mode="wb")
-        logger.info(f"Coping remote file '{fname}' to cache")
-        _copy_btw_filesystems(input_opener, target_opener)
+    def cache_file(self, fname, **open_kwargs) -> None:
+        return _cache_file(
+            fname, _exists=self.exists, _size=self.size, _open=self.open, **open_kwargs
+        )
 
 
-class ScrubParamCacheTarget(CacheFSSpecTarget):
+class DropAPIParamsCache(CacheFSSpecTarget):
     """Alias for CacheFSSpecTarget which removes API paramaters from input paths."""
 
+    def _drop_api_params(path_or_fname: str) -> str:
+        return path_or_fname.split("?")[0]
+
     def _full_path(self, path: str) -> str:
-        path = path.split("?")[0]
+        path = self._drop_api_params(path)
         return _slugify_path(path, self.root_path)
+
+    def cache_file(self, fname, **open_kwargs) -> None:
+        fname = self._drop_api_params(fname)
+        return _cache_file(
+            fname, _exists=self.exists, _size=self.size, _open=self.open, **open_kwargs
+        )
 
 
 class MetadataTarget(FSSpecTarget):
@@ -231,3 +229,26 @@ def _slugify_path(path: str, root_path: str) -> str:
     slug = _slugify(path)
     new_path = "-".join([prefix, slug])
     return os.path.join(root_path, new_path)
+
+
+def _cache_file(
+    fname: str,
+    _exists: Callable,
+    _size: Callable,
+    _open: Callable,
+    **open_kwargs
+) -> None:
+    # check and see if the file already exists in the cache
+    logger.info(f"Caching file '{fname}'")
+    if _exists(fname):
+        cached_size = _size(fname)
+        remote_size = _get_url_size(fname, **open_kwargs)
+        if cached_size == remote_size:
+            # TODO: add checksumming here
+            logger.info(f"File '{fname}' is already cached")
+            return
+
+    input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
+    target_opener = _open(fname, mode="wb")
+    logger.info(f"Coping remote file '{fname}' to cache")
+    _copy_btw_filesystems(input_opener, target_opener)
