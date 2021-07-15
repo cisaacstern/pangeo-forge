@@ -149,9 +149,13 @@ class DropAPIParamsCache(CacheFSSpecTarget):
         return _slugify_path(path, self.root_path)
 
     def cache_file(self, fname, **open_kwargs) -> None:
-        fname = self._drop_api_params(fname)
         return _cache_file(
-            fname, _exists=self.exists, _size=self.size, _open=self.open, **open_kwargs
+            fname,
+            _exists=self.exists,
+            _size=self.size,
+            _open=self.open,
+            _fname_formatter=self._drop_api_params,
+            **open_kwargs
         )
 
 
@@ -236,19 +240,21 @@ def _cache_file(
     _exists: Callable,
     _size: Callable,
     _open: Callable,
+    _fname_formatter: Callable = None,
     **open_kwargs
 ) -> None:
     # check and see if the file already exists in the cache
-    logger.info(f"Caching file '{fname}'")
+    public_fname = fname if not _fname_formatter else _fname_formatter(fname)
+    logger.info(f"Caching file '{public_fname}'")
     if _exists(fname):
         cached_size = _size(fname)
         remote_size = _get_url_size(fname, **open_kwargs)
         if cached_size == remote_size:
             # TODO: add checksumming here
-            logger.info(f"File '{fname}' is already cached")
+            logger.info(f"File '{public_fname}' is already cached")
             return
 
     input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
     target_opener = _open(fname, mode="wb")
-    logger.info(f"Coping remote file '{fname}' to cache")
+    logger.info(f"Coping remote file '{public_fname}' to cache")
     _copy_btw_filesystems(input_opener, target_opener)
