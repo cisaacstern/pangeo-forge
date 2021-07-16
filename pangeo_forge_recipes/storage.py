@@ -155,7 +155,7 @@ class DropAPIParamsCache(CacheFSSpecTarget):
             _size=self.size,
             _open=self.open,
             _fname_formatter=self._drop_api_params,
-            **open_kwargs
+            **open_kwargs,
         )
 
 
@@ -241,7 +241,7 @@ def _cache_file(
     _size: Callable,
     _open: Callable,
     _fname_formatter: Callable = None,
-    **open_kwargs
+    **open_kwargs,
 ) -> None:
     # check and see if the file already exists in the cache
     public_fname = fname if not _fname_formatter else _fname_formatter(fname)
