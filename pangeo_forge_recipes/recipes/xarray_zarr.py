@@ -581,6 +581,7 @@ def store_chunk(
                     f"Storing variable {vname} chunk {str_(chunk_key)} "
                     f"to Zarr region {zarr_region}"
                 )
+                logger.debug(f"Variable chunk is of size {data.nbytes} bytes")
                 zarr_array[zarr_region] = data
 
 
