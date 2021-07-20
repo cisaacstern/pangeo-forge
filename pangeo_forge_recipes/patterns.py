@@ -68,8 +68,31 @@ class DimIndex:
         assert self.index < self.sequence_len
 
 
-FilePatternIndex = Tuple[DimIndex, ...]
+class Index(tuple):
+    """Index does not care about the order of the elements.
+    All elements have to be DimIndex."""
+
+    def __new__(self, args):
+        # This validation really slows things down because we call Index a lot!
+        # if not all((isinstance(a, DimIndex) for a in args)):
+        #     raise ValueError("All arguments must be DimIndex.")
+        # args_set = set(args)
+        # if len(set(args_set)) < len(tuple(args)):
+        #     raise ValueError("Duplicate argument detected.")
+        return tuple.__new__(Index, args)
+
+    def __str__(self):
+        return ",".join(str(dim) for dim in self)
+
+    def __eq__(self, other):
+        return set(self) == set(other)
+
+    def __hash__(self):
+        return hash(frozenset(self))
+
+
 CombineDim = Union[MergeDim, ConcatDim]
+FilePatternIndex = Index
 
 
 class FilePattern:
@@ -137,19 +160,30 @@ class FilePattern:
     def __getitem__(self, indexer: FilePatternIndex) -> str:
         """Get a filename path for a particular key. """
         assert len(indexer) == len(self.combine_dims)
-        format_function_kwargs = {
-            idx.name: dim.keys[idx.index] for idx, dim in zip(indexer, self.combine_dims)
-        }
+        format_function_kwargs = {}
+        for idx in indexer:
+            dims = [
+                dim
+                for dim in self.combine_dims
+                if dim.name == idx.name and dim.operation == idx.operation
+            ]
+            if len(dims) != 1:
+                raise KeyError(r"Could not valid combine_dim for indexer {idx}")
+            dim = dims[0]
+            format_function_kwargs[dim.name] = dim.keys[idx.index]
         fname = self.format_function(**format_function_kwargs)
         return fname
 
     def __iter__(self) -> Iterator[FilePatternIndex]:
         """Iterate over all keys in the pattern. """
         for val in product(*[range(n) for n in self.shape]):
-            yield tuple(
-                DimIndex(op.name, v, len(op.keys), op.operation)
-                for op, v in zip(self.combine_dims, val)
+            index = Index(
+                (
+                    DimIndex(op.name, v, len(op.keys), op.operation)
+                    for op, v in zip(self.combine_dims, val)
+                )
             )
+            yield index
 
     def items(self):
         """Iterate over key, filename pairs."""

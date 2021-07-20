@@ -16,14 +16,13 @@ import numpy as np
 import xarray as xr
 import zarr
 
-from ..patterns import CombineOp, DimIndex, FilePattern, FilePatternIndex, prune_pattern
+from ..patterns import CombineOp, DimIndex, FilePattern, Index, prune_pattern
 from ..storage import AbstractTarget, CacheFSSpecTarget, MetadataTarget, file_opener
 from ..utils import (
     calc_subsets,
     chunk_bounds_and_conflicts,
     fix_scalar_attr_encoding,
     lock_for_conflicts,
-    str_,
 )
 from .base import BaseRecipe
 
@@ -34,8 +33,8 @@ _GLOBAL_METADATA_KEY = "pangeo-forge-recipe-metadata.json"
 logger = logging.getLogger(__name__)
 
 # Some types that help us keep things organized
-InputKey = FilePatternIndex  # input keys are the same as the file pattern keys
-ChunkKey = Tuple[DimIndex, ...]  # actually the same as FilePatternIndex
+InputKey = Index  # input keys are the same as the file pattern keys
+ChunkKey = Index
 
 SubsetSpec = Dict[str, int]
 # SubsetSpec is a dictionary mapping dimension names to the number of subsets along that dimension
@@ -72,7 +71,7 @@ def inputs_for_chunk(
         input_key = [input_concat_dim]
         if merge_dim is not None:
             input_key.append(merge_dim)
-        input_keys.append(tuple(input_key))
+        input_keys.append(Index(input_key))
 
     return input_keys
 
@@ -119,10 +118,11 @@ def cache_input_metadata(
     xarray_open_kwargs: dict,
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
-):
+    is_opendap: bool,
+) -> None:
     if metadata_cache is None:
         raise ValueError("metadata_cache is not set.")
-    logger.info(f"Caching metadata for input '{str_(input_key)}'")
+    logger.info(f"Caching metadata for input '{input_key!s}'")
     with open_input(
         input_key,
         file_pattern=file_pattern,
@@ -132,6 +132,7 @@ def cache_input_metadata(
         xarray_open_kwargs=xarray_open_kwargs,
         delete_input_encoding=delete_input_encoding,
         process_input=process_input,
+        is_opendap=is_opendap,
     ) as ds:
         input_metadata = ds.to_dict(data=False)
         metadata_cache[_input_metadata_fname(input_key)] = input_metadata
@@ -149,11 +150,14 @@ def cache_input(
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
     metadata_cache: Optional[MetadataTarget],
-):
+    is_opendap=bool,
+) -> None:
     if cache_inputs:
+        if is_opendap:
+            raise ValueError("Can't cache opendap inputs")
         if input_cache is None:
             raise ValueError("input_cache is not set.")
-        logger.info(f"Caching input '{str_(input_key)}'")
+        logger.info(f"Caching input '{input_key!s}'")
         fname = file_pattern[input_key]
         input_cache.cache_file(fname, **fsspec_open_kwargs)
 
@@ -168,6 +172,7 @@ def cache_input(
             delete_input_encoding=delete_input_encoding,
             process_input=process_input,
             metadata_cache=metadata_cache,
+            is_opendap=is_opendap,
         )
 
 
@@ -253,11 +258,22 @@ def open_input(
     xarray_open_kwargs: dict,
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
+    is_opendap: bool,
 ) -> xr.Dataset:
     fname = file_pattern[input_key]
-    logger.info(f"Opening input with Xarray {str_(input_key)}: '{fname}'")
+    logger.info(f"Opening input with Xarray {input_key!s}: '{fname}'")
+
+    if is_opendap:
+        if input_cache:
+            raise ValueError("Can't cache opendap inputs")
+        if copy_input_to_local_file:
+            raise ValueError("Can't copy opendap inputs to local file")
+
     cache = input_cache if cache_inputs else None
-    with file_opener(fname, cache=cache, copy_to_local=copy_input_to_local_file) as f:
+
+    with file_opener(
+        fname, cache=cache, copy_to_local=copy_input_to_local_file, bypass_open=is_opendap
+    ) as f:
         with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
             logger.debug(f"about to call xr.open_dataset on {f}")
             kw = xarray_open_kwargs.copy()
@@ -287,7 +303,7 @@ def subset_dataset(ds: xr.Dataset, subset_spec: DimIndex) -> xr.Dataset:
     stop = sum(subset_lens[: (subset_spec.index + 1)])
     subset_slice = slice(start, stop)
     indexer = {dim: subset_slice}
-    logger.debug(f"Subseting dataset with indexer {indexer}")
+    logger.debug(f"Subsetting dataset with indexer {indexer}")
     return ds.isel(**indexer)
 
 
@@ -306,8 +322,9 @@ def open_chunk(
     xarray_open_kwargs: dict,
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
+    is_opendap: bool,
 ) -> xr.Dataset:
-    logger.info(f"Opening inputs for chunk {str_(chunk_key)}")
+    logger.info(f"Opening inputs for chunk {chunk_key!s}")
     ninputs = file_pattern.dims[file_pattern.concat_dims[0]]
     inputs = inputs_for_chunk(chunk_key, inputs_per_chunk, ninputs)
 
@@ -324,6 +341,7 @@ def open_chunk(
                     xarray_open_kwargs=xarray_open_kwargs,
                     delete_input_encoding=delete_input_encoding,
                     process_input=process_input,
+                    is_opendap=is_opendap,
                 )
             )
             for i in inputs
@@ -339,7 +357,7 @@ def open_chunk(
         # explicitly chunking prevents eager evaluation during concat
         dsets = [ds.chunk() for ds in dsets]
 
-        logger.info(f"Combining inputs for chunk '{str_(chunk_key)}'")
+        logger.info(f"Combining inputs for chunk '{chunk_key!s}'")
         if len(dsets) > 1:
             # During concat, attributes and encoding are taken from the first dataset
             # https://github.com/pydata/xarray/issues/1614
@@ -398,7 +416,7 @@ def calculate_sequence_lens(
     sequence_lens = all_lens[tuple(selector)]
     if not (all_lens == sequence_lens).all():
         raise ValueError(f"Inconsistent sequence lengths found: f{all_lens}")
-    return sequence_lens.squeeze().tolist()
+    return np.atleast_1d(sequence_lens.squeeze()).tolist()
 
 
 def prepare_target(
@@ -419,6 +437,7 @@ def prepare_target(
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
     metadata_cache: Optional[MetadataTarget],
+    is_opendap: bool,
 ) -> None:
     try:
         ds = open_target(target)
@@ -448,6 +467,7 @@ def prepare_target(
                 xarray_open_kwargs=xarray_open_kwargs,
                 delete_input_encoding=delete_input_encoding,
                 process_input=process_input,
+                is_opendap=is_opendap,
             ) as ds:
                 # ds is already chunked
 
@@ -523,6 +543,7 @@ def store_chunk(
     delete_input_encoding: bool,
     process_input: Optional[Callable[[xr.Dataset, str], xr.Dataset]],
     metadata_cache: Optional[MetadataTarget],
+    is_opendap: bool,
 ) -> None:
     if target is None:
         raise ValueError("target has not been set.")
@@ -541,6 +562,7 @@ def store_chunk(
         xarray_open_kwargs=xarray_open_kwargs,
         delete_input_encoding=delete_input_encoding,
         process_input=process_input,
+        is_opendap=is_opendap,
     ) as ds_chunk:
         # writing a region means that all the variables MUST have concat_dim
         to_drop = [v for v in ds_chunk.variables if concat_dim not in ds_chunk[v].dims]
@@ -578,8 +600,7 @@ def store_chunk(
             logger.debug(f"Acquiring locks {lock_keys}")
             with lock_for_conflicts(lock_keys, timeout=lock_timeout):
                 logger.info(
-                    f"Storing variable {vname} chunk {str_(chunk_key)} "
-                    f"to Zarr region {zarr_region}"
+                    f"Storing variable {vname} chunk {chunk_key!s} " f"to Zarr region {zarr_region}"
                 )
                 logger.debug(f"Variable chunk is of size {data.nbytes} bytes")
                 zarr_array[zarr_region] = data
@@ -640,6 +661,8 @@ class XarrayZarrRecipe(BaseRecipe):
       along dimension according to the specified mapping. For example,
       ``{'time': 5}`` would split each input file into 5 chunks along the
       time dimension. Multiple dimensions are allowed.
+    :param is_opednap: If True, assume all input fnames represent opendap endpoints.
+      Cannot be used with caching.
     """
 
     file_pattern: FilePattern
@@ -648,7 +671,7 @@ class XarrayZarrRecipe(BaseRecipe):
     target: Optional[AbstractTarget] = None
     input_cache: Optional[CacheFSSpecTarget] = None
     metadata_cache: Optional[MetadataTarget] = None
-    cache_inputs: bool = True
+    cache_inputs: Optional[bool] = None
     copy_input_to_local_file: bool = False
     consolidate_zarr: bool = True
     xarray_open_kwargs: dict = field(default_factory=dict)
@@ -659,6 +682,7 @@ class XarrayZarrRecipe(BaseRecipe):
     process_chunk: Optional[Callable[[xr.Dataset], xr.Dataset]] = None
     lock_timeout: Optional[int] = None
     subset_inputs: SubsetSpec = field(default_factory=dict)
+    is_opendap: bool = False
 
     # internal attributes not meant to be seen or accessed by user
     _concat_dim: str = field(default_factory=str, repr=False, init=False)
@@ -678,6 +702,23 @@ class XarrayZarrRecipe(BaseRecipe):
             [v is None for v in self.file_pattern.concat_sequence_lens.values()]
         )
         self._nitems_per_input = self.file_pattern.nitems_per_input[self._concat_dim]
+
+        if self.is_opendap:
+            if self.cache_inputs:
+                raise ValueError("Can't cache opendap inputs.")
+            else:
+                self.cache_inputs = False
+            if "engine" in self.xarray_open_kwargs:
+                if self.xarray_open_kwargs["engine"] != "netcdf4":
+                    raise ValueError(
+                        "Opendap inputs only work with `xarray_open_kwargs['engine'] == 'netcdf4'`"
+                    )
+            else:
+                new_kw = self.xarray_open_kwargs.copy()
+                new_kw["engine"] = "netcdf4"
+                self.xarray_open_kwargs = new_kw
+        elif self.cache_inputs is None:
+            self.cache_inputs = True  # old defult
 
         def filter_init_chunks(chunk_key):
             for dim_idx in chunk_key:
@@ -710,6 +751,9 @@ class XarrayZarrRecipe(BaseRecipe):
             )
         )
         if all_input_keys != all_inputs_for_chunks:
+            chunk_key = next(iter(self.iter_chunks()))
+            print("First chunk", chunk_key)
+            print("Inputs_for_chunk", inputs_for_chunk(chunk_key, self.inputs_per_chunk, ninputs))
             raise ValueError("Inputs and chunks are inconsistent")
 
     def copy_pruned(self, nkeep: int = 2) -> BaseRecipe:
@@ -764,6 +808,7 @@ class XarrayZarrRecipe(BaseRecipe):
             delete_input_encoding=self.delete_input_encoding,
             process_input=self.process_input,
             metadata_cache=self.metadata_cache,
+            is_opendap=self.is_opendap,
         )
 
     @property
@@ -780,6 +825,7 @@ class XarrayZarrRecipe(BaseRecipe):
             delete_input_encoding=self.delete_input_encoding,
             process_input=self.process_input,
             metadata_cache=self.metadata_cache,
+            is_opendap=self.is_opendap,
         )
 
     @property
@@ -804,6 +850,7 @@ class XarrayZarrRecipe(BaseRecipe):
             delete_input_encoding=self.delete_input_encoding,
             process_input=self.process_input,
             metadata_cache=self.metadata_cache,
+            is_opendap=self.is_opendap,
         )
 
     @property
@@ -836,7 +883,7 @@ class XarrayZarrRecipe(BaseRecipe):
                 for dim_idx in input_key
             ]
             if len(self.subset_inputs) == 0:
-                yield tuple(chunk_key_base)
+                yield Index(chunk_key_base)
                 # no subsets
                 continue
             subset_iterators = [range(v) for k, v in self.subset_inputs.items()]
@@ -846,7 +893,7 @@ class XarrayZarrRecipe(BaseRecipe):
                     DimIndex(*args, CombineOp.SUBSET)
                     for args in zip(self.subset_inputs.keys(), i, self.subset_inputs.values())
                 ]
-                yield tuple(chunk_key_base) + tuple(subset_dims)
+                yield Index((chunk_key_base + subset_dims))
 
     def inputs_for_chunk(self, chunk_key: ChunkKey) -> Sequence[InputKey]:
         """Convenience function for users to introspect recipe."""
@@ -866,6 +913,7 @@ class XarrayZarrRecipe(BaseRecipe):
             xarray_open_kwargs=self.xarray_open_kwargs,
             delete_input_encoding=self.delete_input_encoding,
             process_input=self.process_input,
+            is_opendap=self.is_opendap,
         ) as ds:
             yield ds
 
@@ -885,5 +933,6 @@ class XarrayZarrRecipe(BaseRecipe):
             xarray_open_kwargs=self.xarray_open_kwargs,
             delete_input_encoding=self.delete_input_encoding,
             process_input=self.process_input,
+            is_opendap=self.is_opendap,
         ) as ds:
             yield ds
