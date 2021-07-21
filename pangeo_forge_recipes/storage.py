@@ -43,7 +43,7 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                 summed_length += len(data)
                 logger.debug(
                     f"_copy_btw_filesystems copying block of {len(data)} bytes"
-                    f"_copy_btw_filesystems cumulative read has reached {summed_length} bytes"
+                    f"\n_copy_btw_filesystems cumulative read has reached {summed_length} bytes"
                 )
                 target.write(data)
     logger.debug("_copy_btw_filesystems done")
