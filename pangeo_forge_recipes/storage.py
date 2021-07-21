@@ -28,6 +28,7 @@ def _get_url_size(fname, **open_kwargs):
 def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
     with input_opener as source:
         with output_opener as target:
+            summed_length = 0
             while True:
                 logger.debug("_copy_btw_filesystems reading data")
                 try:
@@ -39,7 +40,11 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                     ) from e
                 if not data:
                     break
-                logger.debug(f"_copy_btw_filesystems copying block of {len(data)} bytes")
+                summed_length += len(data)
+                logger.debug(
+                    f"_copy_btw_filesystems copying block of {len(data)} bytes"
+                    f"_copy_btw_filesystems cumulative read has reached {summed_length} bytes"
+                )
                 target.write(data)
     logger.debug("_copy_btw_filesystems done")
 
