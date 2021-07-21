@@ -1,4 +1,3 @@
-import time
 import hashlib
 import json
 import logging
@@ -13,8 +12,6 @@ from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
 import fsspec
 from fsspec.implementations.http import BlockSizeError
-import numpy as np
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +30,7 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
         with output_opener as target:
             count = 0
             summed_bytes = 0
-            start_total_time = time.time()
-            per_block_times = []
-            total_bytes = []
             while True:
-                start_block_time = time.time()
                 logger.debug(f"_copy_btw_filesystems (block {count}): reading new block")
                 try:
                     data = source.read(BLOCK_SIZE)
@@ -55,19 +48,8 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                     f"\ncumulative read has reached {summed_bytes} bytes"
                 )
                 target.write(data)
-                this_block_time = round(time.time()-start_block_time, 2)
-                per_block_times.append(this_block_time)
-                total_bytes.append(summed_bytes)
-                logger.debug(
-                    f"_copy_btw_filesystems (block {count}): write complete"
-                    f"\n(block {count}): elapsed time was {this_block_time}s"
-                    f"\ntotal elapsed time is {round(time.time()-start_total_time, 2)}s"
-                )
+                logger.debug(f"_copy_btw_filesystems (block {count}): write complete")
                 count += 1
-                if this_block_time > 600:
-                    arr = np.column_stack((total_bytes, per_block_times))
-                    with open('test.npy', 'wb') as f:
-                        np.save(f, arr)
     logger.debug("_copy_btw_filesystems done")
 
 
