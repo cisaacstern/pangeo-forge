@@ -1,3 +1,4 @@
+import time
 import hashlib
 import json
 import logging
@@ -12,6 +13,8 @@ from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
 import fsspec
 from fsspec.implementations.http import BlockSizeError
+import numpy as np
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +31,17 @@ def _get_url_size(fname, **open_kwargs):
 def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
     with input_opener as source:
         with output_opener as target:
-            summed_length = 0
+            count = 0
+            summed_bytes = 0
+            start_total_time = time.time()
+            per_block_times = []
+            total_bytes = []
             while True:
-                logger.debug("_copy_btw_filesystems reading data")
+                start_block_time = time.time()
+                logger.debug(f"_copy_btw_filesystems (block {count}): reading new block")
                 try:
                     data = source.read(BLOCK_SIZE)
+                    logger.debug(f"_copy_btw_filesystems (block {count}): read complete")
                 except BlockSizeError as e:
                     raise ValueError(
                         "Server does not permit random access to this file via Range requests. "
@@ -40,12 +49,25 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                     ) from e
                 if not data:
                     break
-                summed_length += len(data)
+                summed_bytes += len(data)
                 logger.debug(
-                    f"_copy_btw_filesystems copying block of {len(data)} bytes"
-                    f"_copy_btw_filesystems cumulative read has reached {summed_length} bytes"
+                    f"_copy_btw_filesystems (block {count}): copying block of {len(data)} bytes"
+                    f"\ncumulative read has reached {summed_bytes} bytes"
                 )
                 target.write(data)
+                this_block_time = round(time.time()-start_block_time, 2)
+                per_block_times.append(this_block_time)
+                total_bytes.append(summed_bytes)
+                logger.debug(
+                    f"_copy_btw_filesystems (block {count}): write complete"
+                    f"\n(block {count}): elapsed time was {this_block_time}s"
+                    f"\ntotal elapsed time is {round(time.time()-start_total_time, 2)}s"
+                )
+                count += 1
+                if this_block_time > 600:
+                    arr = np.column_stack((total_bytes, per_block_times))
+                    with open('test.npy', 'wb') as f:
+                        np.save(f, arr)
     logger.debug("_copy_btw_filesystems done")
 
 
