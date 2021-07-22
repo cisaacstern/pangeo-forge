@@ -28,7 +28,7 @@ def _get_url_size(fname, **open_kwargs):
 def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000, **kwargs):
     streaming = True if kwargs.pop("block_size", True) == 0 else False
     if os.getenv("PANGEO_FORGE_BLOCK_SIZE"):
-        BLOCK_SIZE = os.getenv("PANGEO_FORGE_BLOCK_SIZE")
+        BLOCK_SIZE = int(os.getenv("PANGEO_FORGE_BLOCK_SIZE"))
     with input_opener as source:
         with output_opener as target:
             count = summed_bytes = 0
