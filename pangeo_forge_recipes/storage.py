@@ -25,15 +25,15 @@ def _get_url_size(fname, **open_kwargs):
     return size
 
 
-def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
+def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000, **kwargs):
+    streaming = True if kwargs.pop("block_size", True) == 0 else False
     with input_opener as source:
         with output_opener as target:
             count = summed_bytes = 0
             while True:
-                logger.debug("_copy_btw_filesystems reading") if source.block_size != 0 else None
+                logger.debug("_copy_btw_filesystems reading data") if not streaming else None
                 try:
                     data = source.read(BLOCK_SIZE)
-                    logger.debug(f"_copy_btw_filesystems (block {count}): read complete")
                 except BlockSizeError as e:
                     raise ValueError(
                         "Server does not permit random access to this file via Range requests. "
@@ -42,7 +42,7 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                 if not data:
                     break
                 # strided logging pattern for streaming transfers to avoid excessive logs
-                if source.block_size == 0:
+                if streaming:
                     summed_bytes += len(data)
                     if summed_bytes // BLOCK_SIZE >= count:
                         logger.debug(
@@ -54,11 +54,6 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                 else:
                     logger.debug(f"_copy_btw_filesystems copying block of {len(data)} bytes")
                 target.write(data)
-                logger.debug(
-                    f"_copy_btw_filesystems (block {count}): write complete"
-                    f"\ncumulative write has reached {summed_bytes} bytes"
-                    )
-                count += 1
     logger.debug("_copy_btw_filesystems done")
 
 
@@ -275,4 +270,4 @@ def _cache_file(
     input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
     target_opener = _open(fname, mode="wb")
     logger.info(f"Coping remote file '{public_fname}' to cache")
-    _copy_btw_filesystems(input_opener, target_opener)
+    _copy_btw_filesystems(input_opener, target_opener, **open_kwargs)
