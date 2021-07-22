@@ -8,7 +8,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional, Sequence, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
 import fsspec
 from fsspec.implementations.http import BlockSizeError
@@ -33,6 +33,7 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                 logger.debug("_copy_btw_filesystems reading") if source.block_size != 0 else None
                 try:
                     data = source.read(BLOCK_SIZE)
+                    logger.debug(f"_copy_btw_filesystems (block {count}): read complete")
                 except BlockSizeError as e:
                     raise ValueError(
                         "Server does not permit random access to this file via Range requests. "
@@ -53,6 +54,11 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
                 else:
                     logger.debug(f"_copy_btw_filesystems copying block of {len(data)} bytes")
                 target.write(data)
+                logger.debug(
+                    f"_copy_btw_filesystems (block {count}): write complete"
+                    f"\ncumulative write has reached {summed_bytes} bytes"
+                    )
+                count += 1
     logger.debug("_copy_btw_filesystems done")
 
 
@@ -138,31 +144,37 @@ class FlatFSSpecTarget(FSSpecTarget):
     """
 
     def _full_path(self, path: str) -> str:
-        # this is just in case _slugify(path) is non-unique
-        prefix = hashlib.md5(path.encode()).hexdigest()
-        slug = _slugify(path)
-        new_path = "-".join([prefix, slug])
-        return os.path.join(self.root_path, new_path)
+        return _slugify_path(path, self.root_path)
 
 
 class CacheFSSpecTarget(FlatFSSpecTarget):
     """Alias for FlatFSSpecTarget"""
 
-    def cache_file(self, fname: str, **open_kwargs) -> None:
-        # check and see if the file already exists in the cache
-        logger.info(f"Caching file '{fname}'")
-        if self.exists(fname):
-            cached_size = self.size(fname)
-            remote_size = _get_url_size(fname, **open_kwargs)
-            if cached_size == remote_size:
-                # TODO: add checksumming here
-                logger.info(f"File '{fname}' is already cached")
-                return
+    def cache_file(self, fname, **open_kwargs) -> None:
+        return _cache_file(
+            fname, _exists=self.exists, _size=self.size, _open=self.open, **open_kwargs
+        )
 
-        input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
-        target_opener = self.open(fname, mode="wb")
-        logger.info(f"Coping remote file '{fname}' to cache")
-        _copy_btw_filesystems(input_opener, target_opener)
+
+class DropAPIParamsCache(CacheFSSpecTarget):
+    """Alias for CacheFSSpecTarget which removes API paramaters from input paths."""
+
+    def _drop_api_params(self, path_or_fname: str) -> str:
+        return path_or_fname.split("?")[0]
+
+    def _full_path(self, path: str) -> str:
+        path = self._drop_api_params(path)
+        return _slugify_path(path, self.root_path)
+
+    def cache_file(self, fname, **open_kwargs) -> None:
+        return _cache_file(
+            fname,
+            _exists=self.exists,
+            _size=self.size,
+            _open=self.open,
+            _fname_formatter=self._drop_api_params,
+            **open_kwargs,
+        )
 
 
 class MetadataTarget(FSSpecTarget):
@@ -230,3 +242,37 @@ def _slugify(value: str) -> str:
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     value = re.sub(r"[^.\w\s-]+", "_", value.lower())
     return re.sub(r"[-\s]+", "-", value).strip("-_")
+
+
+def _slugify_path(path: str, root_path: str) -> str:
+    path = path.split("?")[0]
+    # this is just in case _slugify(path) is non-unique
+    prefix = hashlib.md5(path.encode()).hexdigest()
+    slug = _slugify(path)
+    new_path = "-".join([prefix, slug])
+    return os.path.join(root_path, new_path)
+
+
+def _cache_file(
+    fname: str,
+    _exists: Callable,
+    _size: Callable,
+    _open: Callable,
+    _fname_formatter: Callable = None,
+    **open_kwargs,
+) -> None:
+    # check and see if the file already exists in the cache
+    public_fname = fname if not _fname_formatter else _fname_formatter(fname)
+    logger.info(f"Caching file '{public_fname}'")
+    if _exists(fname):
+        cached_size = _size(fname)
+        remote_size = _get_url_size(fname, **open_kwargs)
+        if cached_size == remote_size:
+            # TODO: add checksumming here
+            logger.info(f"File '{public_fname}' is already cached")
+            return
+
+    input_opener = fsspec.open(fname, mode="rb", **open_kwargs)
+    target_opener = _open(fname, mode="wb")
+    logger.info(f"Coping remote file '{public_fname}' to cache")
+    _copy_btw_filesystems(input_opener, target_opener)
