@@ -35,7 +35,6 @@ def _copy_btw_filesystems(input_opener, output_opener, BLOCK_SIZE=10_000_000):
             while True:
                 try:
                     data = source.read(BLOCK_SIZE)
-                    logger.debug(f"_copy_btw_filesystems (block {count}): read complete")
                 except BlockSizeError as e:
                     raise ValueError(
                         "Server does not permit random access to this file via Range requests. "
