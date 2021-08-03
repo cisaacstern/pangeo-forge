@@ -588,15 +588,20 @@ def store_chunk(
 
         zgroup = zarr.open_group(target_mapper)
         for vname, var_coded in ds_chunk.variables.items():
+            logger.debug(f"top of loop, `vname` is {vname}")
             zarr_array = zgroup[vname]
+            logger.debug("`zarr_array` assigned")
             # get encoding for variable from zarr attributes
             # could this backfire some way?
             var_coded.encoding.update(zarr_array.attrs)
+            logger.debug("encoding updated")
             # just delete all attributes from the var;
             # they are not used anyway, and there can be conflicts
             # related to xarray.coding.variables.safe_setitem
             var_coded.attrs = {}
+            logger.debug("attributes cleared")
             with dask.config.set(scheduler="single-threaded"):  # make sure we don't use a scheduler
+                logger.debug("entered single-threaded context")
                 var = xr.backends.zarr.encode_zarr_variable(var_coded)
                 logger.debug(
                     f"Converting variable {vname} of {var.data.nbytes} bytes to `numpy.ndarray`"
@@ -613,9 +618,15 @@ def store_chunk(
                         " Setting PANGEO_FORGE_MAX_MEMORY env variable changes the variable array"
                         " size which will trigger this warning."
                     )
+                else:
+                    logger.debug(
+                        f"Variable {vname} <= {MAX_MEMORY/1e6} MB, proceeding to call `np.asarray`"
+                    )
+                logger.debug(f"`var.data` type is {type(var.data)}")
                 data = np.asarray(
                     var.data
                 )  # TODO: can we buffer large data rather than loading it all?
+                logger.debug(f"`data` type is {type(data)}")
             zarr_region = tuple(write_region.get(dim, slice(None)) for dim in var.dims)
             lock_keys = [f"{vname}-{c}" for c in conflicts]
             logger.debug(f"Acquiring locks {lock_keys}")
@@ -624,6 +635,7 @@ def store_chunk(
                     f"Storing variable {vname} chunk {chunk_key!s} " f"to Zarr region {zarr_region}"
                 )
                 zarr_array[zarr_region] = data
+                logger.debug("`data` written to `zarr_array[zarr_region]`")
 
 
 def finalize_target(target: CacheFSSpecTarget, consolidate_zarr: bool) -> None:
