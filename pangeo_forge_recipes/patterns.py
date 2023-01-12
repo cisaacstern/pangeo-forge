@@ -1,5 +1,5 @@
 """
-Filename / URL patterns.
+Filename / URL patterns .
 """
 import inspect
 from dataclasses import dataclass, field, replace
